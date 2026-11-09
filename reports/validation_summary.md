@@ -1,20 +1,19 @@
 # Validation summary
 
-- Starter simulator tests: `python -m pytest -q` — **6 passed**.
-- Public_01: completed end-to-end; see `public_01.md`.
-- Public_02: completed end-to-end; see `public_02.md`.
-- Public_03: not run; no scale metrics claimed.
-- Controlled process kill/restart: not run; recovery mechanisms are implemented but C13 remains partial.
-- Controller only calls documented HTTP endpoints; it does not import `sim` or read scenario YAML/hidden truth.
+- Starter simulator tests: `python -m pytest -q` — **6 passed** before controller tests were added.
+- Controller regression tests: **7 passed**; total suite: **13 passed**.
+- `python -m py_compile controller.py` — passed.
+- Fresh public_01 smoke run with the updated controller — completed; controller ingested 297,068 events and exited successfully. The resulting grader report was not retained as an official scenario report because this was a smoke test, not a replacement for the recorded public_01 result.
+- Recorded Public_01 and Public_02 grader outputs remain in `public_01.md` and `public_02.md`.
+- Recorded Public_03 grader output remains in `public_03.md`; it is outcome evidence, not a throughput/peak-memory/10× benchmark.
+- A controlled SIGKILL/restart acceptance test has **not** been completed. Do not claim C13 is fully demonstrated.
+- The controller communicates with the simulator over HTTP and does not import `sim`, read `runs/`, or parse scenario YAML at runtime.
 
-Reproduction commands (from repository root):
+Run from the repository root:
 
 ```bash
-pip install -r requirements.txt
 python -m pytest -q
-python -m sim baseline --scenario scenarios/public_01_dev.yaml --run-dir runs/base01
-python -m sim serve --scenario scenarios/public_01_dev.yaml --run-dir runs/mine01
-# in another terminal:
-./run.sh http://127.0.0.1:8700
-python -m sim grade --run runs/mine01 --baseline runs/base01 --out reports/public_01.md
+python -m py_compile controller.py
 ```
+
+See `docs/OPERATIONS.md` for start, restart, database and audit instructions.

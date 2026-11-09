@@ -1,30 +1,17 @@
 # Formi Outcome-First Controller — delivery notes
 
-This repository includes the supplied simulator assignment plus `controller.py`, `run.sh`, `SUBMISSION.md`, and public scenario grader reports.
+The repository contains the HTTP-only controller, simulator, stakeholder memos, tests, reports and submission.
 
-## Run locally
+## Quick validation
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
 pip install -r requirements.txt
 python -m pytest -q
-python -m sim baseline --scenario scenarios/public_01_dev.yaml --run-dir runs/base01
-python -m sim serve --scenario scenarios/public_01_dev.yaml --run-dir runs/mine01
+python -m py_compile controller.py
 ```
 
-In a second terminal:
+Expected test result: **13 passed**.
 
-```bash
-./run.sh http://127.0.0.1:8700
-```
+For start, restart, database handling and audit queries, see `docs/OPERATIONS.md`. For design choices, stakeholder responses and limitations, see `SUBMISSION.md`.
 
-Then grade:
-
-```bash
-python -m sim grade --run runs/mine01 --baseline runs/base01 --out reports/public_01.md
-```
-
-The controller persists state in `controller_state.sqlite3` in the repository root by default. Set `CONTROLLER_DB=/path/to/state.sqlite3` to choose another path. To resume after a controller restart, use the same DB and the same running simulator.
-
-**Read `SUBMISSION.md` before submitting.** It clearly distinguishes implemented, partial and unimplemented scope. Public_03 load testing and a controlled kill/restart evidence run are still open; do not claim those have been completed.
+**Evidence boundary:** prior public scenario grader reports are retained. This delivery includes a fresh public_01 smoke run, but does not claim a formal SIGKILL/restart acceptance test or formal Public_03 throughput, decision-lag, memory and 10× benchmark.

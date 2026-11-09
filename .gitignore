@@ -6,3 +6,4 @@ __pycache__/
 # Local controller databases and load-test output
 *.sqlite3
 reports/public_03_run/
+.DS_Store

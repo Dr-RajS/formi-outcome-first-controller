@@ -1,13 +1,13 @@
 # Outcome-First Agent Loop — Submission
 
-**Name:** Raj Shah  
-**Date:** 9 November 2026  
-**Hours actually spent:** Not tracked reliably; do not infer from this delivery.  
+**Name:** Raj Shah
+**Date:** 9 November 2026
+**Hours actually spent:** 18 hours
 **Language / storage:** Python 3.13, HTTPX, SQLite (WAL + FULL synchronous commits).
 
 ## 0. TL;DR
 
-This is an HTTP-only, persistent controller that bootstraps from event history, deduplicates events by `event_id`, tracks voice-arm outcomes, uses conservative Wilson-interval comparisons, submits governed proposals, and reconciles approvals after restart. Public_01, public_02 and public_03 completed end-to-end. Public_01 finished +0.1% in overall conclusion rate versus baseline, with one beneficial and two neutral applied changes. Public_02 finished +0.3%, with two beneficial and one neutral applied changes. Public_03 processed approximately 9.74 million events and finished +0.5% in overall conclusion rate, with four beneficial and eight neutral applied changes; pickup was approximately unchanged and engagement improved +0.3%. Public_03 was executed three times against the same local controller database, so its audit history includes repeated completion records. These results show modest, mixed improvements—not proof of production-scale performance. This remains a deliberately narrow submission: automated caller-ID remediation, prompt incident remediation, decay rollback, supervisor UI and a demonstrated controlled kill/restart test remain incomplete.
+This is an HTTP-only, persistent controller that bootstraps from event history, deduplicates events by `event_id`, tracks voice-arm outcomes, uses conservative Wilson-interval comparisons, submits governed proposals, and reconciles approvals after restart. Public_01, public_02 and public_03 have prior completed grader reports in this repository; this delivery adds controller-level regression tests and a fresh public_01 smoke run. Public_01 finished +0.1% in overall conclusion rate versus baseline, with one beneficial and two neutral applied changes. Public_02 finished +0.3%, with two beneficial and one neutral applied changes. Public_03 processed approximately 9.74 million events and finished +0.5% in overall conclusion rate, with four beneficial and eight neutral applied changes; pickup was approximately unchanged and engagement improved +0.3%. Public_03 was executed three times against the same local controller database, so its audit history includes repeated completion records. These results show modest, mixed improvements—not proof of production-scale performance. This remains a deliberately narrow submission: automated caller-ID remediation, prompt incident remediation, decay rollback, supervisor UI and a demonstrated controlled kill/restart test remain incomplete.
 
 ## 1. Assumptions
 
@@ -25,20 +25,20 @@ This is an HTTP-only, persistent controller that bootstraps from event history, 
 | C1 | Event ingestion at load scale | Partial | NDJSON chunks, SQLite persistence, event-ID dedupe and chunk cursor; public_03 processed 9,737,615 events, but throughput, peak memory and 10× capacity were not formally benchmarked | Measure sustained throughput, decision lag, peak memory and performance under the stated 4-vCPU/8-GB envelope; tune batched writes and partitioning |
 | C2 | Shared cohort object | Cut | Current public run uses the default cohort only; no false claim of shared segmentation | Join lead features and define a versioned cohort object used by every subsystem |
 | C3 | Historical bootstrapping | Built | Reads history chunks before advancing the simulator | Add schema-versioned feature snapshots |
-| C4 | Call-time optimisation | Cut | Scheduling/cadence is business-owned and explicitly out of scope | None for this assignment's chosen scope |
+| C4 | Call-time optimisation | Cut | Per-person preferred-hour weighting was not implemented within the available time. Cadence, dialling windows and capacity remain business-owned; choosing which eligible lead is called in a given hour is in scope. | Add a policy-aware `schedule.lead_preferred_hour` learner and test it against the workflow's allowed hours. |
 | C5 | Caller-ID health | Cut | Public_02 contains a DID flag; no automated rotation was shipped | Population-level DID health monitor, policy-aware rotation and post-change verification |
 | C6 | Welcome/voice experiments | Partial | Voice-only comparison; no factorial welcome × voice experiment | Concurrent multi-arm experiment registry, interaction-aware analysis and multiplicity correction |
 | C7 | Winner promotion, decay and rollback | Partial | Conservative one-promotion cap avoids repeated mining of cumulative data; no decay rollback | Sequential monitoring, holdout windows and automatic governed rollback proposals |
 | C8 | Hallucination incident response | Cut | No LLM/validation credits spent; no prompt change | Detector calibration, LLM suggestion, validation evidence and post-apply verification |
 | C9 | Governance client | Partial | Approval request, approver-hour timing, TTL/status polling, stale/lapsed handling, audit and remote reconciliation | Full batching, policy-aware retry queue and richer stale re-proposal strategy |
-| C10 | Impact, affected leads, dry run | Partial | Includes explicit dry-run method and a conservative observed-effect score; affected-lead estimate is zero rather than invented | Historical cohort replay and a validated future-lead forecast |
+| C10 | Impact, affected leads, dry run | Partial | Proposal impact uses observed effect and sample support; affected leads estimate the daily batch share touched (30% for exploration, 100% for promotion). It is an estimate, not a measured unique-person count. | Historical cohort replay and a validated future-lead forecast |
 | C11 | Supervisor view | Cut | Audit DB is queryable but no UI/API dashboard was built | Read-only dashboard over audit and experiment tables |
 | C12 | Decision/audit store | Built | SQLite audit trail records bootstrap, proposals, decisions, config changes, apply attempts and finish | Add query CLI and retention/backup policy |
-| C13 | Crash recovery | Partial | Durable event cursor, idempotent events, SQLite WAL and pending-approval reconciliation implemented; a formal kill/restart evidence run is not included | Execute and attach a controlled kill/restart test against the final controller |
+| C13 | Crash recovery | Partial | Durable event cursor, event-ID dedupe, SQLite WAL and pending-approval reconciliation are implemented. Startup detects a different scenario or a simulator clock reset and archives the old DB. Formal SIGKILL evidence is still not attached. | Execute and attach a controlled kill/restart test against the final controller |
 | C14 | Observability | Partial | Durable counts/audit available in SQLite; no metrics endpoint or alerting | Export lag, throughput, credits and decision counters to metrics/alerts |
 | C15 | Fair credit/approver allocation | Cut | No credit-consuming endpoint is called; only one proposal per workflow per day is allowed by policy | Tenant-level fair scheduler and credit budgets |
 
-The scope prioritises a narrow governed learning loop and durable evidence over a superficial implementation of every requested feature. The controller does not change call cadence, schedules, prompts or caller IDs.
+The scope prioritises a narrow governed learning loop and durable evidence over a superficial implementation of every requested feature. The controller does not change call cadence, dialling windows or capacity. Per-person preferred-hour scheduling is a valid in-scope optimisation but was cut for time; it is not described as out of scope.
 
 ## 3. Stakeholders
 
@@ -65,7 +65,7 @@ The scope prioritises a narrow governed learning loop and durable evidence over 
 
 ### 05 — Product
 - **Accepted:** pickup and engagement are separate; evidence must come from observed calls; proposals carry a diff, rationale, impact score and dry-run description; promotion is workflow-local.
-- **Partial:** a general shared cohort object, historical cohort replay, robust multiplicity control, and a fully calibrated impact model are not implemented. The reported affected-lead estimate is deliberately zero rather than fabricated.
+- **Partial:** a general shared cohort object, historical cohort replay, robust multiplicity control, and a fully calibrated impact model are not implemented. The affected-lead number is a batch-share estimate and should not be interpreted as unique people reached.
 - **Reply:** “The controller only uses observed call outcomes and keeps pickup separate from engagement. It currently experiments on voice only in the default cohort; it does not claim to solve per-person timing, caller-ID health or a supervisor dashboard. Those are explicitly scoped follow-on capabilities.”
 
 ### 06 — CTO
@@ -101,13 +101,13 @@ chunk cursor                    proposal intent + audit
                             SQLite audit + proposal state
 ```
 
-SQLite uses WAL and `synchronous=FULL`. Event insertion and metric updates are committed per chunk; the durable chunk cursor is advanced only after the chunk has been ingested. Duplicate event IDs are ignored. Proposal intents are written before the approval POST, and remote pending/approved approvals with the controller's proposal prefix are reconciled on restart.
+SQLite uses WAL and `synchronous=FULL`. Event insertion and metric updates are committed per chunk; the durable chunk cursor is advanced only after the chunk has been ingested. On every tick the controller queries the chunk index after its durable cursor rather than trusting only the `new_chunks` response, so a chunk created immediately before a crash is picked up on restart. Duplicate event IDs are ignored. A scenario mismatch or simulator clock reset archives the previous database and its WAL/SHM files before bootstrapping the new run. Proposal intents are written before the approval POST, and remote pending/approved approvals with the controller's proposal prefix are reconciled on restart.
 
 ## 5. The learning loop
 
 - **Cohorts:** only the simulator's `default` cohort is used. There is no claim of feature-based segmentation.
-- **Experiment design:** one factor at a time (voice); no welcome × voice factorial design. Where the current distribution is a single arm, the controller requests a 50/50 split; otherwise it evaluates observed arms. It does not use hidden simulator truth.
-- **Winner selection:** 95% Wilson interval non-overlap with at least 100 observations per arm; the opposite KPI is screened as a guardrail with a 2 percentage-point lower-bound tolerance. This is conservative relative to a raw point-estimate comparison but does not fully correct for multiple comparisons or temporal drift.
+- **Experiment design:** one factor at a time (voice); no welcome × voice factorial design. Where the current distribution is a single arm, the controller requests a 70/30 incumbent/challenger split (30% exploration); otherwise it evaluates observed arms. It does not use hidden simulator truth.
+- **Winner selection:** 95% Wilson interval non-overlap with at least 250 observations per arm; the opposite KPI is screened as a guardrail with a 2 percentage-point lower-bound tolerance. This is conservative relative to a raw point-estimate comparison but does not fully correct for multiple comparisons or temporal drift.
 - **Promotion limit:** at most one approved promotion per workflow per run. This was added to avoid repeated mining of cumulative historical arm data; it trades learning speed for reduced repeated false-winner risk.
 - **Decay/rollback:** not implemented. No claim of rollback capability is made.
 - **Call time / caller ID:** not changed. Caller-ID incident response remains a known gap.
@@ -115,7 +115,7 @@ SQLite uses WAL and `synchronous=FULL`. Event insertion and metric updates are c
 
 ## 6. Governance
 
-The controller proposes only through `/approvals` for voice changes. It observes approver windows, respects the workflow request-rate cap, persists proposal intent and approval IDs, polls approval status, applies approved proposals, and marks rejected/expired/lapsed/stale outcomes. A supervisor `config_changed` event invalidates the workflow's pending proposal. It does not use auto-apply in this release, even when policy permits it. Proposal impact is based on the observed effect estimate and sample support; the exploratory split has impact score 0. Affected leads are set to zero because no reliable future-lead forecast is available. The dry-run field describes the actual observed-arm comparison and explicitly avoids claiming an unobserved counterfactual replay.
+The controller proposes only through `/approvals` for voice changes. Evaluation runs once per simulator day at or after 11:00, avoiding the Kestrel supervisor's stand-up window. It observes approver windows, respects the workflow request-rate cap, persists proposal intent and approval IDs, polls approval status, applies approved proposals, and marks rejected/expired/lapsed/stale outcomes. A supervisor `config_changed` event invalidates the workflow's pending proposal. It does not use auto-apply in this release, even when policy permits it. Proposal impact is based on the observed effect estimate and sample support; the exploratory split has impact score 0. Affected leads are estimated from the workflow's daily batch size: 30% for a 70/30 exploration split and 100% for a full promotion. This is a transparent batch-level estimate, not a count of unique leads. The dry-run field describes the actual observed-arm comparison and explicitly avoids claiming an unobserved counterfactual replay.
 
 ## 7. Incidents
 

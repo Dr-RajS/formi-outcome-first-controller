@@ -35,16 +35,54 @@ def wins(base,cand,primary):
  if not base or not cand: return False
  n1,n2=base['n'],cand['n']; x1,x2=base['p'],cand['p']
  if primary=='engagement_rate': n1,n2=base['gn'],cand['gn']; x1,x2=base['g'],cand['g']
- return n1>=100 and n2>=100 and lo(x2,n2)>hi(x1,n1)
+ return n1>=250 and n2>=250 and lo(x2,n2)>hi(x1,n1)
+
+def proposal_id(wf, day, version, dim, action):
+ return 'ofal-'+wf+'-'+day.replace('-','')+'-v'+str(version)+'-'+dim+'-'+action
+
+def affected_leads(batch_size, action):
+ # Exploration exposes 30% to the challenger; promotion changes the full batch.
+ return int(batch_size * (1.0 if action == 'promote' else 0.3))
+
+def auto_apply_allowed(governance, changed_dims, max_shift):
+ policy=governance.get('auto_apply',{})
+ return bool(policy.get('enabled')) and set(changed_dims).issubset(set(policy.get('allowed_dims',[]))) and max_shift <= policy.get('max_shift',0)
+
+def fresh_run_required(saved_scenario, saved_minute, current_scenario, current_minute):
+ return saved_scenario != current_scenario or saved_minute > current_minute
+
+def evaluation_due(ts, evaluated_day):
+ return len(ts)>=16 and ts[11:16]>='11:00' and evaluated_day != ts[:10]
+
 def main():
  ap=argparse.ArgumentParser(); ap.add_argument('--url',required=True); ap.add_argument('--db',default='controller_state.sqlite3'); ap.add_argument('--tick',type=int,default=60); a=ap.parse_args()
- s=Store(a.db); c=httpx.Client(base_url=a.url,timeout=120); wfs={w['workflow_id']:w for w in c.get('/workflows').json()}; last=s.get('last_chunk',-1)
+ c=httpx.Client(base_url=a.url,timeout=120)
+ sim=c.get('/sim/state').json()
+ # A DB belongs to one scenario/run. Archive it rather than silently mixing
+ # event IDs when the same path is reused for a fresh simulator.
+ old=sqlite3.connect(a.db)
+ try:
+  has_state=old.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='kv'").fetchone()
+  meta={}
+  old_last=None
+  if has_state:
+   meta={k:json.loads(v) for k,v in old.execute("SELECT k,v FROM kv WHERE k IN ('scenario','sim_minute')")}
+   old_last=old.execute("SELECT v FROM kv WHERE k='last_chunk'").fetchone()
+ finally: old.close()
+ if os.path.exists(a.db) and old_last and fresh_run_required(meta.get('scenario'),meta.get('sim_minute',0),sim.get('scenario'),sim.get('sim_minute',0)):
+  import time
+  stamp=time.strftime('%Y%m%d-%H%M%S')
+  for suffix in ('','-wal','-shm'):
+   src=a.db+suffix
+   if os.path.exists(src): os.replace(src,src+'.old-'+stamp)
+  print('Archived controller DB: fresh simulator scenario/run detected')
+ s=Store(a.db); wfs={w['workflow_id']:w for w in c.get('/workflows').json()}; last=s.get('last_chunk',-1)
  if last<0:
   for ch in c.get('/events/chunks',params={'kind':'history'}).json():
    for ln in c.get(f"/events/chunks/{ch['chunk']}").text.splitlines():
     if ln.strip(): s.add_event(json.loads(ln),ch['chunk'],wfs)
    last=max(last,ch['chunk'])
-  s.set('last_chunk',last); s.audit('D0',None,'bootstrap',{'history_chunk':last})
+  s.set('last_chunk',last); s.set('scenario',sim.get('scenario')); s.set('sim_minute',sim.get('sim_minute',0)); s.audit('D0',None,'bootstrap',{'history_chunk':last})
  pending={wf:aid for wf,aid in s.d.execute("SELECT wf,aid FROM proposals WHERE status='pending' AND aid IS NOT NULL")}
  # Reconcile remote approvals by durable proposal ID, covering a crash after POST /approvals
  # succeeds but before its approval_id is committed locally.
@@ -66,10 +104,28 @@ def main():
    pending[wf]=aid
  s.d.commit()
  while True:
-  if c.get('/sim/state').json().get('finished'): break
+  state_now=c.get('/sim/state').json()
+  if state_now.get('finished'):
+   # A crash can occur after the simulator's final advance but before the
+   # controller checkpoints its last chunk. Drain that tail before exiting.
+   tail=c.get('/events/chunks',params={'kind':'events','after':last}).json()
+   for ch in tail:
+    for ln in c.get(f"/events/chunks/{ch['chunk']}").text.splitlines():
+     if not ln.strip(): continue
+     e=json.loads(ln); s.add_event(e,ch['chunk'],wfs)
+     if e.get('type') in ('config_changed','approval_decided'):
+      s.audit(e.get('ts'),e.get('workflow_id'),e.get('type'),e)
+      if e.get('type')=='config_changed' and e.get('actor')=='supervisor':
+       s.d.execute("UPDATE proposals SET status='stale' WHERE wf=? AND status='pending'",(e['workflow_id'],)); s.d.commit()
+   if tail: last=max(x['chunk'] for x in tail); s.set('last_chunk',last)
+   s.audit(state_now.get('ts','END'),None,'finished_recovered_tail',{'chunks':len(tail)})
+   break
   r=c.post('/sim/advance',json={'minutes':a.tick})
   if r.status_code==409: break
-  r.raise_for_status(); st=r.json(); ts=st.get('ts',''); chunks=st.get('new_chunks',[])
+  r.raise_for_status(); st=r.json(); ts=st.get('ts','')
+  # Query the durable chunk index after our checkpoint. This catches chunks
+  # created just before a process died, even when advance() is not replayed.
+  chunks=c.get('/events/chunks',params={'kind':'events','after':last}).json()
   for ch in chunks:
    for ln in c.get(f"/events/chunks/{ch['chunk']}").text.splitlines():
     if not ln.strip(): continue
@@ -81,6 +137,7 @@ def main():
     elif e.get('type')=='approval_decided': s.audit(e.get('ts'),e.get('workflow_id'),'approval_decided',e)
    s.d.commit()
   if chunks: last=max(x['chunk'] for x in chunks); s.set('last_chunk',last)
+  s.set('scenario',sim.get('scenario')); s.set('sim_minute',st.get('sim_minute',sim.get('sim_minute',0)))
   # Durable approval reconciliation: poll after every tick; approved items are applied once.
   for wf,aid in list(pending.items()):
    try: apv=c.get(f'/approvals/{aid}').json()
@@ -92,8 +149,9 @@ def main():
      s.d.execute('UPDATE proposals SET status=? WHERE aid=?',('applied' if rr.status_code==200 else 'stale_or_lapsed',aid)); s.d.commit(); pending.pop(wf,None)
    elif status in ('rejected','expired','lapsed'):
     s.d.execute('UPDATE proposals SET status=? WHERE aid=?',(status,aid)); s.d.commit(); s.audit(ts,wf,status,apv); pending.pop(wf,None)
-  # Evaluate once per day at 10:00, inside every public approver window.
-  if len(ts)>=16 and ts[11:16]=='10:00':
+  # Evaluate once per simulator day at/after 11:00; never send pre-standup requests.
+  eval_day=s.get('eval_day')
+  if evaluation_due(ts,eval_day):
    for wf,w in wfs.items():
     if wf in pending: continue
     gov=w.get('governance',{}); recent=s.d.execute('SELECT COUNT(*) FROM proposals WHERE wf=? AND ts>=?',(wf,ts[:10])).fetchone()[0]
@@ -105,11 +163,11 @@ def main():
     # Conservative, one-factor voice experiment; no cohort fragmentation or cross-tenant promotion.
     dim='voice'; dist=cfg.get('allocations',{}).get('default',{}).get(dim,{})
     current=max(dist,key=dist.get) if dist else (opts.get(dim) or [''])[0]; stats=s.stats(wf,dim)
-    # First create a genuine concurrent 50/50 experiment; never wait for an unobserved arm to win.
+    # First create a genuine concurrent 70/30 experiment; never wait for an unobserved arm to win.
     if len(dist)<=1:
-     challenger=next((v for v in opts.get(dim,[]) if str(v)!=str(current) and stats.get(str(v),{}).get('n',0)<100),None)
+     challenger=next((v for v in opts.get(dim,[]) if str(v)!=str(current) and stats.get(str(v),{}).get('n',0)<250),None)
      if challenger is None: continue
-     target={current:0.5,challenger:0.5}; chosen=None
+     target={current:0.7,challenger:0.3}; chosen=None
     else:
      # Keep the highest-weight arm as the incumbent until a challenger clears the evidence bar.
      incumbent=max(dist,key=dist.get); base=stats.get(str(incumbent),{}); chosen=None
@@ -119,13 +177,13 @@ def main():
       # Guardrail is the opposite KPI and must not show a >2pp lower confidence bound.
       if primary=='engagement_rate': cg,cn,bg,bn=cand['p'],cand['n'],base['p'],base['n']
       else: cg,cn,bg,bn=cand['g'],cand['gn'],base['g'],base['gn']
-      if cn>=100 and bn>=100 and lo(cg,cn) < lo(bg,bn)-.02: continue
+      if cn>=250 and bn>=250 and lo(cg,cn) < lo(bg,bn)-.02: continue
       chosen=v; break
      if chosen is None: continue
      target={chosen:1.0}
     new=copy.deepcopy(cfg); new.setdefault('allocations',{}).setdefault('default',{})[dim]=target
-    pid='ofal-'+wf+'-'+ts[:10].replace('-','')+'-v'+str(cur['version'])+'-'+dim+'-'+('promote' if chosen is not None else 'explore'); auto=gov.get('auto_apply',{})
-    if auto.get('enabled') and dim in auto.get('allowed_dims',[]) and auto.get('max_shift',0)>=.5:
+    action='promote' if chosen is not None else 'explore'; pid=proposal_id(wf,ts[:10],cur['version'],dim,action); auto=gov.get('auto_apply',{})
+    if auto_apply_allowed(gov,[dim],.5):
      rr=c.put(f'/workflows/{wf}/config',json={'proposal_id':pid,'base_version':cur['version'],'proposed_config':new,'rationale':'Voice winner passed conservative 95% Wilson screen; guardrail checked separately.'})
      s.audit(ts,wf,'auto_apply_attempt',{'proposal_id':pid,'http':rr.status_code,'body':rr.json()})
      if rr.status_code==200: continue
@@ -135,12 +193,13 @@ def main():
      cst=stats.get(str(chosen),{}); bn=max(1,base.get('gn',1)); cn=max(1,cst.get('gn',1))
      delta=cst.get('g',0)/cn-base.get('g',0)/bn
      impact=round(min(1.0,max(0.0,delta*10*min(1.0,min(cn,bn)/500))),3)
-    body={'proposal_id':pid,'workflow_id':wf,'base_version':cur['version'],'proposed_config':new,'change_summary':(f'Promote voice {chosen} after controlled comparison' if chosen is not None else f'Start 50/50 voice experiment: {current} vs {challenger}'),'diff':{'allocations.default.voice':{'from':dist,'to':target}},'affected_leads':0,'dry_run':{'method':'Observed arm comparison; at least 100 observations per arm; no unobserved counterfactual asserted.'},'impact_score':impact,'rationale':(f'{primary} challenger has non-overlapping 95% Wilson interval; guardrail evaluated independently.' if chosen is not None else 'Exploratory split only; no winner claim is made before minimum evidence.'),'expires_in_hours':min(12,gov.get('proposal_ttl_hours',12))}
+    body={'proposal_id':pid,'workflow_id':wf,'base_version':cur['version'],'proposed_config':new,'change_summary':(f'Promote voice {chosen} after controlled comparison' if chosen is not None else f'Start 70/30 voice experiment: {current} vs {challenger}'),'diff':{'allocations.default.voice':{'from':dist,'to':target}},'affected_leads':affected_leads(w.get('daily_batch',{}).get('size',0),action),'dry_run':{'method':'Observed arm comparison; at least 250 observations per arm; no unobserved counterfactual asserted.'},'impact_score':impact,'rationale':(f'{primary} challenger has non-overlapping 95% Wilson interval; guardrail evaluated independently.' if chosen is not None else 'Exploratory split only; no winner claim is made before minimum evidence.'),'expires_in_hours':min(12,gov.get('proposal_ttl_hours',12))}
 
     s.audit(ts,wf,'proposal_intent',{'body':body})
     rr=c.post('/approvals',json=body); s.audit(ts,wf,'proposal_attempt',{'body':body,'http':rr.status_code,'response':rr.json()})
     if rr.status_code==200:
      aid=rr.json()['approval_id']; pending[wf]=aid; s.d.execute('INSERT OR REPLACE INTO proposals VALUES(?,?,?,?,?,?,?)',(pid,wf,aid,'pending',cur['version'],json.dumps(new),ts)); s.d.commit()
+   s.set('eval_day',ts[:10])
   if st.get('finished'): break
  s.audit('END',None,'finished',c.get('/sim/state').json()); print(json.dumps({'finished':True,'events':s.d.execute('SELECT COUNT(*) FROM events').fetchone()[0],'audit':s.d.execute('SELECT COUNT(*) FROM audit').fetchone()[0],'db':a.db}))
 if __name__=='__main__': main()
