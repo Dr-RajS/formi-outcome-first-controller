@@ -1,0 +1,44 @@
+{
+  "clean": {
+    "finished": true,
+    "sim_minute": 11520,
+    "last_event_id": 297009,
+    "events": 297009,
+    "metrics": 14,
+    "approval_count": 3,
+    "config_history_entries": 6
+  },
+  "crash_1s": {
+    "finished": true,
+    "sim_minute": 11520,
+    "last_event_id": 297009,
+    "events": 297009,
+    "metrics": 14,
+    "approval_count": 3,
+    "config_history_entries": 6,
+    "approvals_match_clean": true,
+    "config_history_matches_clean": true
+  },
+  "crash_4s": {
+    "finished": true,
+    "sim_minute": 11520,
+    "last_event_id": 297009,
+    "events": 297009,
+    "metrics": 14,
+    "approval_count": 3,
+    "config_history_entries": 6,
+    "approvals_match_clean": true,
+    "config_history_matches_clean": true
+  },
+  "crash_7s": {
+    "finished": true,
+    "sim_minute": 11520,
+    "last_event_id": 297009,
+    "events": 297009,
+    "metrics": 14,
+    "approval_count": 3,
+    "config_history_entries": 6,
+    "approvals_match_clean": true,
+    "config_history_matches_clean": true
+  }
+}
