@@ -22,7 +22,7 @@ This is an HTTP-only, persistent controller that bootstraps from event history, 
 
 | # | Capability | Built / Partial / Cut | Why | What it would take to finish |
 |---|---|---|---|---|
-| C1 | Event ingestion at load scale | Partial | NDJSON chunks, SQLite persistence, event-ID dedupe and chunk cursor; public_03 processed 9,737,615 events, but throughput, peak memory and 10× capacity were not formally benchmarked | Measure sustained throughput, decision lag, peak memory and performance under the stated 4-vCPU/8-GB envelope; tune batched writes and partitioning |
+| C1 | Event ingestion at load scale | Partial | NDJSON chunks, SQLite persistence, event-ID dedupe and chunk cursor; public_03 processed 9,737,616 events, but throughput, peak memory and 10× capacity were not formally benchmarked | Measure sustained throughput, decision lag, peak memory and performance under the stated 4-vCPU/8-GB envelope; tune batched writes and partitioning |
 | C2 | Shared cohort object | Cut | Current public run uses the default cohort only; no false claim of shared segmentation | Join lead features and define a versioned cohort object used by every subsystem |
 | C3 | Historical bootstrapping | Built | Reads history chunks before advancing the simulator | Add schema-versioned feature snapshots |
 | C4 | Call-time optimisation | Cut | Per-person preferred-hour weighting was not implemented within the available time. Cadence, dialling windows and capacity remain business-owned; choosing which eligible lead is called in a given hour is in scope. | Add a policy-aware `schedule.lead_preferred_hour` learner and test it against the workflow's allowed hours. |
@@ -55,7 +55,7 @@ The scope prioritises a narrow governed learning loop and durable evidence over 
 
 ### 03 — Platform/SRE
 - **Accepted:** idempotent ingestion, durable SQLite state, WAL, restart cursor and no new server dependency.
-- **Partial:** Public_03 completed with 9,737,615 controller-processed events. This provides evidence of execution at the supplied workload, but not a formal throughput, peak-memory or 10× capacity benchmark. Controlled termination/restart tests at 1s, 4s and 7s are attached; all completed with matching event counts, approvals and configuration history.
+- **Partial:** Public_03 completed with 9,737,616 controller-processed events. This provides evidence of execution at the supplied workload, but not a formal throughput, peak-memory or 10× capacity benchmark. Controlled termination/restart tests at 1s, 4s and 7s are attached; all completed with matching event counts, approvals and configuration history.
 - **Reply:** “The controller persists event IDs, chunk progress, proposals and audit rows in SQLite WAL mode. Public_03 completed and its grader report is attached. Forced termination/restart tests at 1s, 4s and 7s completed with matching event counts, approvals and configuration history. This is recovery evidence, not production-scale performance proof.”
 
 ### 04 — Client Ops Supervisor
@@ -168,7 +168,6 @@ The results are mixed and modest. Public_01 is near-flat, Public_02 is modestly 
 2. Minimum sample size of 100 is a starting threshold, not a power analysis.
 3. No multiple-comparison correction, cohort feature join, or temporal holdout.
 4. No caller-ID rotation, prompt validation, hallucination remediation, decay rollback or supervisor UI. Public_03 completed; formal throughput, decision-lag, controller peak-memory and 10× capacity benchmarks remain outstanding. Crash/restart evidence is attached.
-5. No formal kill/restart evidence is attached.
 6. Impact score and affected-lead estimate are intentionally conservative but not yet a fully calibrated business model.
 
 ## 14. If this went to production at Formi next month
