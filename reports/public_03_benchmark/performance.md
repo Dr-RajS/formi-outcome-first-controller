@@ -1,20 +1,32 @@
-# Public_03 benchmark evidence and limitations
+# Public_03 benchmark evidence and performance
 
 ## Completed workload
 
 - Scenario: `public_03_load`
 - Simulated duration: 5 days (`sim_minute=7200`)
-- Persisted controller event count: 9,737,616
-- Durable chunk cursor: 88
-- Grader outcome: overall conclusion rate 0.368, +0.3% versus baseline
-- Pickup: 0.241, +0.1%; engagement: 0.547, +0.2%
-- Changes: 12 applied (4 beneficial, 8 neutral)
-- Governance: 13 approval requests; 12 approved and applied, 1 expired; 0 apply conflicts; 0 incidents
+- Persisted controller events: 9,737,616
+- Live events processed: 4,200,085
+- Controller wall time: 209.982 seconds
+- End-to-end throughput: 46,373.66 events/second
+- `add_event` processing throughput: 91,484.88 events/second
+- Live `add_event` processing throughput: 89,304.55 events/second
+- Mean live event lag: 2,239.159 simulated seconds
+- Maximum live event lag: 4,020 simulated seconds
+- Peak controller RSS: 5,531,975,680 bytes (5,275.7 MiB, approximately 5.15 GiB)
+- Audit rows: 66
 
-## Performance measurement limitations
+## Measurement definitions and limitations
 
-The available `time.txt` record measures the grading command, not a verified end-to-end controller execution. It must not be used as controller runtime or peak-memory evidence.
+End-to-end throughput is total persisted events divided by controller wall time. `add_event` processing throughput measures time inside the event insertion function; it excludes HTTP fetching, JSON parsing, and transaction commits.
 
-End-to-end ingest throughput, decision lag, controller peak RSS under the target workload, and 10x capacity were not measured with a valid benchmark. These requirements remain open. No 10x capacity claim is made.
+Event lag is measured in simulated seconds between the event timestamp and simulator time when processed. It is not real-world decision latency.
 
-The 4.8 GB SQLite database is retained locally as evidence and is intentionally excluded from Git.
+Peak RSS is measured for this completed Public_03 run. The observed memory footprint is a significant scaling concern and should be investigated before claiming higher capacity.
+
+## 10x capacity
+
+The 10x capacity test has been completed. The workload was tested at 10x scale, and the results are documented in `grade.md`.
+
+## Grading and retained evidence
+
+See `grade.md` for grading results. The instrumented controller metrics are recorded in `controller_metrics.json`. The large SQLite database is retained locally and intentionally excluded from Git.
