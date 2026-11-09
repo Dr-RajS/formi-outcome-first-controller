@@ -7,7 +7,7 @@
 
 ## 0. TL;DR
 
-This is an HTTP-only, persistent controller that bootstraps from event history, deduplicates events by `event_id`, tracks voice-arm outcomes, uses conservative Wilson-interval comparisons, submits governed proposals, and reconciles approvals after restart. Public_01 and public_02 both completed end-to-end. Public_02 finished +0.3% overall conclusion rate versus baseline, with two beneficial and one neutral applied changes. Public_01 finished +0.1% overall conclusion rate, with one beneficial and two neutral applied changes. This is a working, deliberately narrow submission—not a claim that all 15 capabilities are complete: load-scale measurement, a demonstrated kill/restart run, caller-ID incident remediation, prompt incident remediation, decay rollback and supervisor UI remain incomplete.
+This is an HTTP-only, persistent controller that bootstraps from event history, deduplicates events by `event_id`, tracks voice-arm outcomes, uses conservative Wilson-interval comparisons, submits governed proposals, and reconciles approvals after restart. Public_01, public_02 and public_03 completed end-to-end. Public_01 finished +0.1% in overall conclusion rate versus baseline, with one beneficial and two neutral applied changes. Public_02 finished +0.3%, with two beneficial and one neutral applied changes. Public_03 processed approximately 9.74 million events and finished +0.5% in overall conclusion rate, with four beneficial and eight neutral applied changes; pickup was approximately unchanged and engagement improved +0.3%. Public_03 was executed three times against the same local controller database, so its audit history includes repeated completion records. These results show modest, mixed improvements—not proof of production-scale performance. This remains a deliberately narrow submission: automated caller-ID remediation, prompt incident remediation, decay rollback, supervisor UI and a demonstrated controlled kill/restart test remain incomplete.
 
 ## 1. Assumptions
 
@@ -22,7 +22,7 @@ This is an HTTP-only, persistent controller that bootstraps from event history, 
 
 | # | Capability | Built / Partial / Cut | Why | What it would take to finish |
 |---|---|---|---|---|
-| C1 | Event ingestion at load scale | Partial | NDJSON chunks, SQLite persistence, event-ID dedupe and chunk cursor; public_03 throughput not measured | Benchmark on public_03 and tune batched writes/partitioning |
+| C1 | Event ingestion at load scale | Partial | NDJSON chunks, SQLite persistence, event-ID dedupe and chunk cursor; public_03 processed 9,737,615 events, but throughput, peak memory and 10× capacity were not formally benchmarked | Measure sustained throughput, decision lag, peak memory and performance under the stated 4-vCPU/8-GB envelope; tune batched writes and partitioning |
 | C2 | Shared cohort object | Cut | Current public run uses the default cohort only; no false claim of shared segmentation | Join lead features and define a versioned cohort object used by every subsystem |
 | C3 | Historical bootstrapping | Built | Reads history chunks before advancing the simulator | Add schema-versioned feature snapshots |
 | C4 | Call-time optimisation | Cut | Scheduling/cadence is business-owned and explicitly out of scope | None for this assignment's chosen scope |
@@ -55,8 +55,8 @@ The scope prioritises a narrow governed learning loop and durable evidence over 
 
 ### 03 — Platform/SRE
 - **Accepted:** idempotent ingestion, durable SQLite state, WAL, restart cursor and no new server dependency.
-- **Partial:** crash-recovery design is present, but a formal kill/restart evidence run and public_03 performance numbers are not attached. SQLite is suitable for this single-process simulator submission, not a multi-replica production deployment.
-- **Reply:** “The controller persists event IDs, chunk progress, proposals and audit rows in SQLite WAL mode. Restart replays are deduplicated. I have not represented this as production-scale proof: the public_03 benchmark and controlled kill/restart evidence remain release gates.”
+- **Partial:** Public_03 completed with 9,737,615 controller-processed events. This provides evidence of execution at the supplied workload, but not a formal throughput, peak-memory or 10× capacity benchmark. A controlled kill/restart evidence run is also still outstanding.
+- **Reply:** “The controller persists event IDs, chunk progress, proposals and audit rows in SQLite WAL mode. Public_03 completed and its grader report is attached. Restart replays are designed to be deduplicated, but I have not represented this as production-scale proof or claimed a demonstrated crash-recovery test. Those remain release gates.”
 
 ### 04 — Client Ops Supervisor
 - **Accepted:** do not overwrite supervisor edits; send proposals during approver hours; limit proposal volume; keep changes explainable.
@@ -71,7 +71,7 @@ The scope prioritises a narrow governed learning loop and durable evidence over 
 ### 06 — CTO
 - **Accepted:** compute/credits should be spent only when they change a decision; explainability and scope discipline matter more than feature count.
 - **Pushback:** none of the stakeholder wishlists is treated as an automatic P0. This release spends no LLM or validation credits.
-- **Reply:** “I chose a narrow, auditable voice experiment and governed promotion path. The public_02 result is positive but modest; public_01 is near-flat, so this should be treated as an engineering prototype, not a production-ready optimiser. The next gates are load testing, controlled crash recovery, DID/prompt incident response and rollback.”
+- **Reply:** “I chose a narrow, auditable voice experiment and governed promotion path. Public_01 is near-flat, while Public_02 and Public_03 show modest positive overall conclusion-rate changes. Public_03 completed at approximately 9.74 million events, but this is not proof of production-scale capacity. The next gates are formal performance benchmarking, controlled crash recovery, DID/prompt incident response and rollback.”
 
 ## 4. Architecture
 
@@ -123,7 +123,7 @@ Public_02 includes a flagged caller ID and supervisor edits. The controller reco
 
 ## 8. Scale
 
-Public_03 was not run in this delivery. Therefore no ingest-throughput, decision-lag, peak-memory or simulated-day wall-clock claim is made. SQLite's per-event work and the Python process are the likely first bottlenecks at 10×. The next benchmark should batch inserts, index by workflow/cohort/time, partition ingestion by workflow, and measure under the stated 4-vCPU/8-GB envelope.
+Public_03 was executed against the 5-day, 4-tenant load scenario. The baseline generated 9,737,591 events, while the controller processed 9,737,615 events and completed with its durable cursor at chunk 87. The grader reported an overall conclusion-rate improvement of +0.5%, pickup approximately unchanged, and engagement improvement of +0.3%. Four applied changes were beneficial and eight were neutral. These are workload and outcome observations, not a formal throughput or capacity benchmark: sustained events/second, decision lag, peak memory and 10× capacity were not measured. The controller was run three times against the same local SQLite database; the audit history therefore includes three finish records. The 4.8-GB local database is excluded from Git. SQLite's per-event work and the Python process remain likely bottlenecks at higher scale. A proper benchmark should measure throughput, memory and lag under the stated 4-vCPU/8-GB envelope.
 
 ## 9. Reliability
 
@@ -146,10 +146,11 @@ This returns the bootstrap, proposal intent/request, approval decision, apply at
 
 See `reports/public_01.md` and `reports/public_02.md` for complete grader output.
 
-- **Public_01:** overall conclusion rate +0.1% versus baseline; pickup +0.5%; engagement -0.3%. Three changes applied: one beneficial, two neutral. Three approval requests were made and approved.
-- **Public_02:** overall conclusion rate +0.3%; pickup -0.7%; engagement +1.0%. Three changes applied: two beneficial, one neutral. Three approval requests were approved; no harmful applied change was reported by the grader.
+- **Public_01:** Overall conclusion rate +0.1% versus baseline; pickup +0.5%; engagement -0.3%. Three changes applied: one beneficial and two neutral. Three approval requests were made and approved.
+- **Public_02:** Overall conclusion rate +0.3%; pickup -0.7%; engagement +1.0%. Three changes applied: two beneficial and one neutral. Three approval requests were approved.
+- **Public_03:** Overall conclusion rate +0.5%; pickup approximately unchanged; engagement +0.3%. Twelve changes applied: four beneficial and eight neutral. All twelve were approved. The controller processed 9,737,615 events. See `reports/public_03.md` for the complete grader output.
 
-The results are mixed. Public_02 is modestly positive; public_01 is near-flat. This is not sufficient evidence to claim a robust optimiser or ship to production. The first improvement should be stronger experiment design (pre-registered arms, concurrent holdouts, multiplicity control and cohort-aware windows), then rerun both scenarios.
+The results are mixed and modest. Public_01 is near-flat, Public_02 is modestly positive, and Public_03 shows a small overall improvement despite neutral results across most applied changes. These results are not sufficient evidence to claim a robust optimiser or production readiness. The next improvement should be stronger experiment design (pre-registered arms, concurrent holdouts, multiplicity control and cohort-aware windows), followed by controlled reruns.
 
 ## 12. Trade-offs & rejected alternatives
 
@@ -166,7 +167,7 @@ The results are mixed. Public_02 is modestly positive; public_01 is near-flat. T
 1. Public_01 result is near-flat; public_02 is only modestly positive.
 2. Minimum sample size of 100 is a starting threshold, not a power analysis.
 3. No multiple-comparison correction, cohort feature join, or temporal holdout.
-4. No caller-ID rotation, prompt validation, hallucination remediation, decay rollback, supervisor UI, or load benchmark.
+4. No caller-ID rotation, prompt validation, hallucination remediation, decay rollback or supervisor UI. Public_03 was executed, but formal throughput, peak-memory and 10× capacity benchmarks remain outstanding.
 5. No formal kill/restart evidence is attached.
 6. Impact score and affected-lead estimate are intentionally conservative but not yet a fully calibrated business model.
 
@@ -176,6 +177,6 @@ The results are mixed. Public_02 is modestly positive; public_01 is near-flat. T
 2. Add feature joins and one versioned cohort object shared by detection, experiment and supervisor views.
 3. Implement DID health detection and a prompt safety incident path with validation evidence.
 4. Add concurrent holdouts, multiplicity correction, sequential monitoring, decay detection and governed rollback.
-5. Run public_03 and 10× stress tests; move state to managed Postgres and add metrics/alerts.
+5. Run formal public_03 and 10× stress tests with throughput, decision-lag and peak-memory measurements; move state to managed Postgres and add metrics/alerts.
 6. Execute controlled crash/restart and supervisor-edit chaos tests; add compliance export and retention controls.
 7. Only then enable policy-permitted automation with staged rollout and per-tenant kill switches.
